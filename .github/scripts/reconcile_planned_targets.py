@@ -43,8 +43,9 @@ def main() -> int:
     summary_path = os.environ.get("SUMMARY_PATH", "reconcile.md")
 
     policy = load_branch_policy()
-    client = load_gitlab_client(mode)
-    all_targets = load_targets(mode, client=client)
+    config_path = os.environ.get("TARGETS_CONFIG_PATH")
+    client = load_gitlab_client(mode, path=config_path)
+    all_targets = load_targets(mode, client=client, path=config_path)
     batch_targets = slice_batch(all_targets, batch_index, batch_size)
     if not batch_targets:
         raise SystemExit(f"No targets resolved for batch {batch_index}")

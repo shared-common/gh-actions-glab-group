@@ -476,7 +476,7 @@ def redact_target_context(message: str, target: TargetSpec, client: GitLabClient
     return redacted
 
 
-def load_gitlab_client(mode: str) -> GitLabClient:
+def load_gitlab_client(mode: str, *, path: str | None = None) -> GitLabClient:
     if mode not in {"external", "internal", "group"}:
         raise SystemExit(f"Unsupported sync mode: {mode}")
     return GitLabClient(
@@ -486,7 +486,7 @@ def load_gitlab_client(mode: str) -> GitLabClient:
     )
 
 
-def load_mirror_target_client() -> GitLabClient:
+def load_mirror_target_client(*, path: str | None = None) -> GitLabClient:
     return GitLabClient(
         base_url=require_secret("GL_BASE_URL"),
         username=require_secret("GL_USER_FORK_MIRROR_SVC"),
@@ -498,8 +498,8 @@ def load_targets(mode: str, *, client: GitLabClient | None = None, path: str | N
     if mode != "group":
         raise SystemExit(f"Unsupported sync mode: {mode}")
 
-    discovery_client = client or load_gitlab_client(mode)
     config_path = path or require_env("TARGETS_CONFIG_PATH")
+    discovery_client = client or load_gitlab_client(mode, path=config_path)
     label = "group targets config"
     payload = _require_dict(load_json_file(config_path, label), label)
     version = payload.get("version")

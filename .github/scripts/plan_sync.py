@@ -51,8 +51,9 @@ def main() -> int:
     github_output = os.environ.get("GITHUB_OUTPUT", "")
     batch_size = _require_positive_int(os.environ.get("BATCH_SIZE", "50"), "BATCH_SIZE")
 
-    client = load_gitlab_client(mode)
-    targets = load_targets(mode, client=client)
+    config_path = os.environ.get("TARGETS_CONFIG_PATH")
+    client = load_gitlab_client(mode, path=config_path)
+    targets = load_targets(mode, client=client, path=config_path)
     batch_matrix = build_batch_matrix(len(targets), batch_size)
     has_mirror_targets = any(bool(target.target_mirror_path) for target in targets)
 

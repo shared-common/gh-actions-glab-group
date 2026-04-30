@@ -53,51 +53,14 @@ jobs:
             "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GL_USER_FORK_MIRROR_SVC,GL_PAT_FORK_MIRROR_SVC" \
             >> "${GITHUB_OUTPUT}"
 
-      - name: Resolve bws CLI metadata
-        id: bws_meta
-        shell: bash
-        env:
-          RAW_BWS_VERSION: ${{ vars.BWS_VERSION }}
-          RAW_BWS_SHA256: ${{ vars.BWS_SHA256 }}
-        run: |
-          set -euo pipefail
-          version="$(printf '%s' "${RAW_BWS_VERSION}" | tr -d '[:space:]')"
-          sha256="$(printf '%s' "${RAW_BWS_SHA256}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-          if [ -z "${version}" ]; then
-            printf '%s\n' 'Repository variable BWS_VERSION resolved to empty after normalization' >&2
-            exit 1
-          fi
-          if [ -z "${sha256}" ]; then
-            printf '%s\n' 'Repository variable BWS_SHA256 resolved to empty after normalization' >&2
-            exit 1
-          fi
-          case "${version}" in
-            *[!0-9A-Za-z._-]*)
-              printf 'BWS_VERSION contains invalid characters: %s\n' "${version}" >&2
-              exit 1
-              ;;
-          esac
-          case "${sha256}" in
-            *[!0-9a-f]*)
-              printf '%s\n' 'BWS_SHA256 must be a lowercase hexadecimal sha256 value' >&2
-              exit 1
-              ;;
-          esac
-          if [ "${#sha256}" -ne 64 ]; then
-            printf 'BWS_SHA256 must be 64 hex characters, got %s\n' "${#sha256}" >&2
-            exit 1
-          fi
-          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
-          printf 'sha256=%s\n' "${sha256}" >> "${GITHUB_OUTPUT}"
-
       - name: Fetch mirror secrets from BWS
         uses: >-
           shared-common/gh-actions-shared/.github/actions/bws-fetch@v0.0.41
         with:
           access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
           project-id: ${{ secrets.BWS_PROJECT_ID }}
-          bws-version: ${{ steps.bws_meta.outputs.version }}
-          bws-sha256: ${{ steps.bws_meta.outputs.sha256 }}
+          bws-version: ${{ vars.BWS_VERSION }}
+          bws-sha256: ${{ vars.BWS_SHA256 }}
           secrets: ${{ steps.config_meta.outputs.secrets }}
           output-dir: .secrets
 

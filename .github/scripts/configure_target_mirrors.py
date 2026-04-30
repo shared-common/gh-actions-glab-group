@@ -60,9 +60,10 @@ def main() -> int:
     output_path = os.environ.get("OUTPUT_PATH", "mirror.json")
     summary_path = os.environ.get("SUMMARY_PATH", "mirror.md")
 
-    source_client = load_gitlab_client(mode)
-    mirror_client = load_mirror_target_client()
-    targets = [target for target in load_targets(mode, client=source_client) if target.target_mirror_path]
+    config_path = os.environ.get("TARGETS_CONFIG_PATH")
+    source_client = load_gitlab_client(mode, path=config_path)
+    mirror_client = load_mirror_target_client(path=config_path)
+    targets = [target for target in load_targets(mode, client=source_client, path=config_path) if target.target_mirror_path]
 
     configured: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
