@@ -95,7 +95,6 @@ class TargetSpec:
     source: str
     repo_name: str
     target_mirror_path: str = ""
-    source_import: bool = False
     git_lfs: bool | None = None
     git_timeout_seconds: int = 300
     branches: tuple[NamedSyncSpec, ...] = ()
@@ -109,7 +108,6 @@ class TargetSpec:
             "target_mirror_path": self.target_mirror_path,
             "source": self.source,
             "repo_name": self.repo_name,
-            "source_import": self.source_import,
             "git_lfs": self.git_lfs,
             "git_timeout_seconds": self.git_timeout_seconds,
             "branch_rev": self.branch_rev,
@@ -124,7 +122,6 @@ class TargetSpec:
         target_mirror_path = str(payload.get("target_mirror_path") or "").strip()
         source = _require_string(payload.get("source"), "source")
         repo_name_raw = str(payload.get("repo_name") or "").strip()
-        source_import = _require_optional_bool(payload.get("source_import"), "source_import") or False
         git_lfs = _require_optional_bool(payload.get("git_lfs"), "git_lfs")
         git_timeout_seconds = _require_optional_int(payload.get("git_timeout_seconds"), "git_timeout_seconds") or 300
         branch_rev = str(payload.get("branch_rev") or "").strip()
@@ -163,7 +160,6 @@ class TargetSpec:
             target_mirror_path=target_mirror_path,
             source=normalized_source,
             repo_name=repo_name,
-            source_import=source_import,
             git_lfs=git_lfs,
             git_timeout_seconds=git_timeout_seconds,
             branches=tuple(branches),
@@ -424,7 +420,6 @@ def _expand_group_targets(group: GroupSpec, client: GitLabClient, label: str) ->
                 target_mirror_path=target_mirror_path,
                 source=source_url,
                 repo_name=target_project_path.rsplit("/", 1)[-1],
-                source_import=False,
                 git_lfs=relative_path in group.git_lfs_projects,
                 git_timeout_seconds=group.git_timeout_seconds,
                 branches=group.branches,
@@ -555,102 +550,6 @@ def git_remote_ref_sha(
     return None
 
 
-def _wait_for_project_import(
-    client: GitLabClient,
-    project_path: str,
-    *,
-    timeout_seconds: int,
-) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout_seconds
-    last_status = "unavailable"
-    while time.monotonic() < deadline:
-        project = get_gitlab_project(client, project_path)
-        if isinstance(project, dict):
-            status = str(project.get("import_status") or "").strip().lower()
-            if status == "finished":
-                return project
-            if status == "failed":
-                import_error = str(project.get("import_error") or "unknown import failure").strip()
-                raise SystemExit(f"GitLab project import failed for {project_path}: {import_error}")
-            last_status = status or "unavailable"
-        time.sleep(2)
-    raise SystemExit(
-        f"Timed out waiting for GitLab project import for {project_path} (last import_status: {last_status})"
-    )
-
-
-def _build_project_import_url(client: GitLabClient, target: TargetSpec) -> str:
-    if target.mode == "internal":
-        source_project = get_gitlab_project(client, target.source)
-        if source_project is None:
-            raise SystemExit(f"Source project not found or not accessible: {target.source}")
-        return inject_basic_auth_into_url(
-            client.project_git_url(target.source),
-            client.username,
-            client.token,
-            "internal source import url",
-        )
-    return target.source
-
-
-def _import_target_project(
-    client: GitLabClient,
-    *,
-    target: TargetSpec,
-    target_project_path: str,
-    timeout_seconds: int,
-) -> tuple[dict[str, Any], bool]:
-    existing = get_gitlab_project(client, target_project_path)
-    if existing is not None:
-        status = str(existing.get("import_status") or "").strip().lower()
-        if status == "finished":
-            return existing, False
-        if status and status != "none":
-            return _wait_for_project_import(client, target_project_path, timeout_seconds=timeout_seconds), False
-
-    import_url = _build_project_import_url(client, target)
-
-    if existing is None:
-        group_path, project_name = target_project_path.rsplit("/", 1)
-        payload = {
-            "import_url": import_url,
-            "name": project_name,
-            "namespace_id": get_gitlab_group_id(client, group_path),
-            "path": project_name,
-            "shared_runners_enabled": False,
-            "visibility": "private",
-        }
-        try:
-            created = gitlab_request(client, "POST", "/projects", payload)
-        except ApiError as exc:
-            message = str(exc).lower()
-            if exc.status in {400, 409} and (
-                "already exists" in message
-                or "has already been taken" in message
-                or "path has already been taken" in message
-            ):
-                return _wait_for_project_import(client, target_project_path, timeout_seconds=timeout_seconds), False
-            raise SystemExit(f"Unable to start source import from {target.source}: {exc}") from exc
-        if created is not None and not isinstance(created, dict):
-            raise SystemExit("GitLab project create returned an invalid response")
-        return _wait_for_project_import(client, target_project_path, timeout_seconds=timeout_seconds), True
-
-    project_id = int(existing["id"])
-    payload = {
-        "import_url": import_url,
-        "shared_runners_enabled": False,
-    }
-
-    try:
-        updated = gitlab_request(client, "PUT", f"/projects/{project_id}", payload)
-    except ApiError as exc:
-        raise SystemExit(f"Unable to start source import from {target.source}: {exc}") from exc
-
-    if updated is not None and not isinstance(updated, dict):
-        raise SystemExit("GitLab project update returned an invalid response")
-    return _wait_for_project_import(client, target_project_path, timeout_seconds=timeout_seconds), True
-
-
 def _unmanaged_ref_names(
     client: GitLabClient,
     *,
@@ -675,31 +574,6 @@ def _unmanaged_ref_names(
             continue
         unmanaged_tags.append(tag_name)
     return unmanaged_branches, unmanaged_tags
-
-
-def _prune_imported_refs(
-    client: GitLabClient,
-    *,
-    project_id: int,
-    branches: tuple[ManagedBranch, ...],
-    tags: tuple[ManagedTag, ...],
-    results: dict[str, list[str]],
-) -> None:
-    unmanaged_branches, unmanaged_tags = _unmanaged_ref_names(
-        client,
-        project_id=project_id,
-        branches=branches,
-        tags=tags,
-    )
-    for branch_name in unmanaged_branches:
-        delete_gitlab_protected_branch(client, project_id, branch_name)
-        if delete_gitlab_branch(client, project_id, branch_name):
-            results["pruned"].append(f"branch:{branch_name}")
-
-    for tag_name in unmanaged_tags:
-        delete_gitlab_protected_tag(client, project_id, tag_name)
-        if delete_gitlab_tag(client, project_id, tag_name):
-            results["pruned"].append(f"tag:{tag_name}")
 
 
 def _sync_target_refs(
@@ -832,7 +706,6 @@ def _sync_target_refs(
         for branch in branches:
             _sync_branch(
                 branch,
-                target=target,
                 repo_path=repo_path,
                 source_url=source_url,
                 target_url=target_url,
@@ -906,7 +779,6 @@ def inspect_target(target: TargetSpec, policy: BranchPolicy, client: GitLabClien
         if project is None:
             reasons.append("project_missing")
         else:
-            project_import_status = str(project.get("import_status") or "").strip().lower()
             target_url = client.project_git_url(target.target_project_path)
             branch_source_shas: dict[str, str | None] = {source_default_branch: source_sha}
 
@@ -989,19 +861,16 @@ def inspect_target(target: TargetSpec, policy: BranchPolicy, client: GitLabClien
 
             if str(project.get("default_branch") or "") != policy.default_branch:
                 reasons.append(f"default_branch_mismatch:{policy.default_branch}")
-            if target.source_import and project_import_status != "finished":
-                reasons.append("source_import_pending")
-            if not target.source_import and project_import_status == "finished":
-                unmanaged_branches, unmanaged_tags = _unmanaged_ref_names(
-                    client,
-                    project_id=project_id,
-                    branches=branches,
-                    tags=tags,
-                )
-                if unmanaged_branches:
-                    reasons.append("unmanaged_branches_present")
-                if unmanaged_tags:
-                    reasons.append("unmanaged_tags_present")
+            unmanaged_branches, unmanaged_tags = _unmanaged_ref_names(
+                client,
+                project_id=project_id,
+                branches=branches,
+                tags=tags,
+            )
+            if unmanaged_branches:
+                reasons.append("unmanaged_branches_present")
+            if unmanaged_tags:
+                reasons.append("unmanaged_tags_present")
 
     return {
         "mode": target.mode,
@@ -1197,7 +1066,6 @@ def _push_ref(
 def _sync_branch(
     branch: ManagedBranch,
     *,
-    target: TargetSpec,
     repo_path: str,
     source_url: str,
     target_url: str,
@@ -1224,29 +1092,22 @@ def _sync_branch(
         return
 
     if existing_sha is None:
-        outcome = None
-        if target.source_import and source_sha is not None:
-            imported_source_sha = get_gitlab_branch_sha(client, project_id, branch.source_name)
-            if imported_source_sha == source_sha:
-                created = create_gitlab_branch(client, project_id, branch.target_name, branch.source_name)
-                outcome = "updated" if created else "skipped"
-        if outcome is None:
-            outcome = _push_ref(
-                repo_path,
-                source_url,
-                target_url,
-                branch.source_name,
-                branch.target_name,
-                ref_namespace="heads",
-                source_remote="source",
-                target_remote="target",
-                expected_remote_sha=None,
-                allow_existing=True,
-                git_lfs_enabled=git_lfs_enabled,
-                timeout_seconds=git_timeout_seconds,
-                secrets=secrets,
-                env_overrides=git_env,
-            )
+        outcome = _push_ref(
+            repo_path,
+            source_url,
+            target_url,
+            branch.source_name,
+            branch.target_name,
+            ref_namespace="heads",
+            source_remote="source",
+            target_remote="target",
+            expected_remote_sha=None,
+            allow_existing=True,
+            git_lfs_enabled=git_lfs_enabled,
+            timeout_seconds=git_timeout_seconds,
+            secrets=secrets,
+            env_overrides=git_env,
+        )
         results["created" if outcome != "skipped" else "skipped"].append(branch.target_name)
     elif branch.upstream:
         if source_sha is not None and existing_sha == source_sha:
@@ -1368,21 +1229,8 @@ def reconcile_target(target: TargetSpec, policy: BranchPolicy, client: GitLabCli
         branches = target.managed_branches(policy, source_default_branch)
         tags = target.managed_tags()
 
-        if target.source_import:
-            existing_before = get_gitlab_project(client, target.target_project_path)
-            status_before = str(existing_before.get("import_status") or "").strip().lower() if isinstance(existing_before, dict) else ""
-            project, created = _import_target_project(
-                client,
-                target=target,
-                target_project_path=target.target_project_path,
-                timeout_seconds=target.git_timeout_seconds,
-            )
-            used_source_import = existing_before is None or status_before in {"", "none"}
-        else:
-            project, created = ensure_gitlab_project(client, target.target_project_path)
-            used_source_import = False
+        project, created = ensure_gitlab_project(client, target.target_project_path)
         project_id = int(project["id"])
-        project_import_status = str(project.get("import_status") or "").strip().lower()
         target_url = client.project_git_url(target.target_project_path)
         secrets = (client.token, client.username)
 
@@ -1398,11 +1246,7 @@ def reconcile_target(target: TargetSpec, policy: BranchPolicy, client: GitLabCli
         if created:
             results["created"].append(f"project:{target.target_project_path}")
 
-        if target.source_import and used_source_import:
-            results["updated"].append("seed:source_import")
-
         _sync_target_refs(
-            target,
             branches=branches,
             tags=tags,
             source_url=source_url,
@@ -1420,14 +1264,6 @@ def reconcile_target(target: TargetSpec, policy: BranchPolicy, client: GitLabCli
         default_branch_changed = ensure_gitlab_default_branch(client, project_id, policy.default_branch)
         if default_branch_changed:
             results["updated"].append(f"default_branch:{policy.default_branch}")
-        if not target.source_import and project_import_status == "finished":
-            _prune_imported_refs(
-                client,
-                project_id=project_id,
-                branches=branches,
-                tags=tags,
-                results=results,
-            )
 
         return {
             "mode": target.mode,
@@ -1497,8 +1333,6 @@ def summarize_target_reasons(payload: dict[str, Any]) -> str:
     labels.extend(_summarize_ref_reasons(payload.get("tags", {})))
     if any(str(reason).startswith("default_branch_mismatch:") for reason in reasons):
         labels.append("default branch mismatch")
-    if "source_import_pending" in reasons:
-        labels.append("source import pending")
     if "unmanaged_branches_present" in reasons:
         labels.append("unexpected branches present")
     if "unmanaged_tags_present" in reasons:
