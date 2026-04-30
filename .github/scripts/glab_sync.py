@@ -1247,6 +1247,7 @@ def reconcile_target(target: TargetSpec, policy: BranchPolicy, client: GitLabCli
             results["created"].append(f"project:{target.target_project_path}")
 
         _sync_target_refs(
+            target,
             branches=branches,
             tags=tags,
             source_url=source_url,
