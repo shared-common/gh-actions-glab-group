@@ -19,6 +19,7 @@ env:
   SYNC_MODE: group
   BATCH_SIZE: "50"
   TARGETS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_group.json
+  TARGET_PROJECTS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_project.json
 
 jobs:
   plan:

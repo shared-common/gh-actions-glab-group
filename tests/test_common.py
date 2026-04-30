@@ -320,6 +320,33 @@ class CommonTests(unittest.TestCase):
             },
         )
 
+    def test_ensure_gitlab_project_reuses_existing_project_after_422_conflict(self):
+        client = _common.GitLabClient(
+            base_url="https://gitlab.com",
+            username="svc-user",
+            token="secret-token",
+        )
+        existing_project = {"id": 11, "path_with_namespace": "top/sub/project"}
+        with unittest.mock.patch.object(_common, "get_gitlab_project", side_effect=[None, None]):
+            with unittest.mock.patch.object(_common, "ensure_gitlab_group", return_value=({"id": 77}, False)):
+                with unittest.mock.patch.object(
+                    _common,
+                    "find_project_in_group",
+                    side_effect=[None, existing_project],
+                ):
+                    with unittest.mock.patch.object(
+                        _common,
+                        "gitlab_request",
+                        side_effect=_common.ApiError(
+                            422,
+                            "Project namespace name has already been taken, Name has already been taken, Path has already been taken",
+                        ),
+                    ):
+                        project, created = _common.ensure_gitlab_project(client, "top/sub/project")
+
+        self.assertFalse(created)
+        self.assertEqual(project, existing_project)
+
     def test_ensure_gitlab_group_creates_missing_subgroup(self):
         client = _common.GitLabClient(
             base_url="https://gitlab.com",

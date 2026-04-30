@@ -45,7 +45,7 @@ class GlabSyncTests(unittest.TestCase):
                         "target_project_group": "ghgl-forks/mainline/packages",
                         "target_mirror_group": "ghgl-mirror/mainline/packages",
                         "source_project_group_url": "https://gitlab.example/upstream/packages",
-                        "git_lfs_project": ["nested/keepsecret"],
+                        "git_lfs_project": ["ghgl-forks/mainline/packages/nested/keepsecret"],
                         "git_timeout_seconds": 900,
                         "branch_rev": "feature/login",
                         "branches": [
@@ -93,7 +93,7 @@ class GlabSyncTests(unittest.TestCase):
         self.assertEqual(targets[0].branch_rev, "feature/login")
         self.assertEqual(targets[0].branches[0].name, "dev/test")
         self.assertEqual(targets[0].tags[0].name, "v1.0.0")
-        self.assertFalse(targets[1].git_lfs)
+        self.assertIsNone(targets[1].git_lfs)
 
     def test_load_targets_rejects_source_group_urls_on_another_host(self):
         path = write_config(
@@ -151,6 +151,86 @@ class GlabSyncTests(unittest.TestCase):
         with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
             with self.assertRaisesRegex(SystemExit, "contains unknown source projects: missing/project"):
                 glab_sync.load_targets("group", client=client, path=path)
+
+    def test_load_targets_applies_project_overrides(self):
+        group_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_group": "glab-forks/kalilinux/packages",
+                        "target_mirror_group": "",
+                        "source_project_group_url": "https://gitlab.example/kalilinux/packages",
+                        "branches": [],
+                        "tags": [],
+                    }
+                ],
+            }
+        )
+        project_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_path": "glab-forks/kalilinux/packages/bloodhound",
+                        "git_lfs": True,
+                        "git_timeout_seconds": 1800,
+                    }
+                ],
+            }
+        )
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        projects = [
+            {
+                "path_with_namespace": "kalilinux/packages/bloodhound",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/bloodhound.git",
+            }
+        ]
+
+        with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
+            targets = glab_sync.load_targets("group", client=client, path=group_path, project_path=project_path)
+
+        self.assertEqual(len(targets), 1)
+        self.assertTrue(targets[0].git_lfs)
+        self.assertEqual(targets[0].git_timeout_seconds, 1800)
+
+    def test_load_targets_rejects_unknown_project_overrides(self):
+        group_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_group": "glab-forks/kalilinux/packages",
+                        "target_mirror_group": "",
+                        "source_project_group_url": "https://gitlab.example/kalilinux/packages",
+                        "branches": [],
+                        "tags": [],
+                    }
+                ],
+            }
+        )
+        project_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_path": "glab-forks/kalilinux/packages/missing",
+                        "git_lfs": True,
+                    }
+                ],
+            }
+        )
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        projects = [
+            {
+                "path_with_namespace": "kalilinux/packages/bloodhound",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/bloodhound.git",
+            }
+        ]
+
+        with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
+            with self.assertRaisesRegex(SystemExit, "unknown target projects: glab-forks/kalilinux/packages/missing"):
+                glab_sync.load_targets("group", client=client, path=group_path, project_path=project_path)
 
     def test_target_spec_requires_repo_name_to_match_target_path(self):
         with self.assertRaises(SystemExit):

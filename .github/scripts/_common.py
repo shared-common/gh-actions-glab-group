@@ -104,7 +104,9 @@ def load_json_file(path: str, label: str) -> Any:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise SystemExit(f"{label} file is not valid JSON: {exc.msg}") from exc
+        raise SystemExit(
+            f"{label} file is not valid JSON: {exc.msg} at line {exc.lineno} column {exc.colno}"
+        ) from exc
 
 
 def load_json_mapping(raw: str, label: str) -> dict[str, str]:
@@ -577,12 +579,7 @@ def ensure_gitlab_project(client: GitLabClient, project_path: str) -> tuple[dict
     try:
         created = gitlab_request(client, "POST", "/projects", payload)
     except ApiError as exc:
-        message = str(exc).lower()
-        if exc.status not in {400, 409} or (
-            "already exists" not in message
-            and "has already been taken" not in message
-            and "path has already been taken" not in message
-        ):
+        if not _is_already_exists_conflict(exc):
             raise
         existing = get_gitlab_project(client, project_path)
         if existing:
@@ -840,7 +837,7 @@ def protected_tag_allows_sync(data: Optional[dict[str, Any]]) -> bool:
 
 
 def _is_already_exists_conflict(exc: ApiError) -> bool:
-    if exc.status not in {400, 409}:
+    if exc.status not in {400, 409, 422}:
         return False
     message = str(exc).lower()
     return (

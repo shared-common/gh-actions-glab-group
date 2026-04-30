@@ -14,6 +14,7 @@ permissions: {}
 env:
   SYNC_MODE: group
   TARGETS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_group.json
+  TARGET_PROJECTS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_project.json
 
 jobs:
   configure:

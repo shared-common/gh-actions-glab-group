@@ -89,6 +89,13 @@ class GroupSpec:
 
 
 @dataclass(frozen=True)
+class TargetOverrideSpec:
+    target_project_path: str
+    git_lfs: bool | None = None
+    git_timeout_seconds: int | None = None
+
+
+@dataclass(frozen=True)
 class TargetSpec:
     mode: str
     target_project_path: str
@@ -301,14 +308,41 @@ def _load_named_sync_specs(value: object, label: str) -> list[NamedSyncSpec]:
     return specs
 
 
-def _load_relative_project_paths(value: object, label: str) -> list[str]:
+def _normalize_group_project_path(
+    value: str,
+    *,
+    target_project_group: str,
+    source_group_path: str,
+    label: str,
+) -> str:
+    if value == target_project_group or value == source_group_path:
+        raise SystemExit(f"{label} must reference a project below the configured group")
+    for prefix in (f"{target_project_group}/", f"{source_group_path}/"):
+        if value.startswith(prefix):
+            value = value[len(prefix) :]
+            break
+    validate_project_path(value, label, min_segments=1)
+    return value
+
+
+def _load_group_project_paths(
+    value: object,
+    label: str,
+    *,
+    target_project_group: str,
+    source_group_path: str,
+) -> list[str]:
     if value is None:
         return []
     paths: list[str] = []
     seen: set[str] = set()
     for index, item in enumerate(_require_list(value, label)):
-        path = _require_string(item, f"{label}[{index}]")
-        validate_project_path(path, f"{label}[{index}]", min_segments=1)
+        path = _normalize_group_project_path(
+            _require_string(item, f"{label}[{index}]"),
+            target_project_group=target_project_group,
+            source_group_path=source_group_path,
+            label=f"{label}[{index}]",
+        )
         if path in seen:
             raise SystemExit(f"Duplicate {label} entry: {path}")
         seen.add(path)
@@ -343,7 +377,14 @@ def _group_spec_from_payload(payload: dict[str, Any], label: str) -> GroupSpec:
     )
     branches = _load_named_sync_specs(payload.get("branches"), f"{label}.branches")
     tags = _load_named_sync_specs(payload.get("tags"), f"{label}.tags")
-    git_lfs_projects = _load_relative_project_paths(payload.get("git_lfs_project"), f"{label}.git_lfs_project")
+    if payload.get("git_lfs_project") is not None and payload.get("git_lfs_projects") is not None:
+        raise SystemExit(f"{label} must set only one of git_lfs_project or git_lfs_projects")
+    git_lfs_projects = _load_group_project_paths(
+        payload.get("git_lfs_project") if payload.get("git_lfs_project") is not None else payload.get("git_lfs_projects"),
+        f"{label}.git_lfs_project",
+        target_project_group=target_project_group,
+        source_group_path=source_group_path,
+    )
     return GroupSpec(
         target_project_group=target_project_group,
         target_mirror_group=target_mirror_group,
@@ -420,7 +461,7 @@ def _expand_group_targets(group: GroupSpec, client: GitLabClient, label: str) ->
                 target_mirror_path=target_mirror_path,
                 source=source_url,
                 repo_name=target_project_path.rsplit("/", 1)[-1],
-                git_lfs=relative_path in group.git_lfs_projects,
+                git_lfs=True if relative_path in group.git_lfs_projects else None,
                 git_timeout_seconds=group.git_timeout_seconds,
                 branches=group.branches,
                 tags=group.tags,
@@ -432,6 +473,60 @@ def _expand_group_targets(group: GroupSpec, client: GitLabClient, label: str) ->
     if missing_lfs:
         raise SystemExit(f"{label}.git_lfs_project contains unknown source projects: {', '.join(missing_lfs)}")
     return expanded
+
+
+def _target_override_from_payload(payload: dict[str, Any], label: str) -> TargetOverrideSpec:
+    target_project_path = _require_string(payload.get("target_project_path"), f"{label}.target_project_path")
+    validate_project_path(target_project_path, f"{label}.target_project_path")
+    git_lfs = _require_optional_bool(payload.get("git_lfs"), f"{label}.git_lfs")
+    git_timeout_seconds = _require_optional_int(
+        payload.get("git_timeout_seconds"),
+        f"{label}.git_timeout_seconds",
+    )
+    if git_lfs is None and git_timeout_seconds is None:
+        raise SystemExit(f"{label} must set at least one override field")
+    return TargetOverrideSpec(
+        target_project_path=target_project_path,
+        git_lfs=git_lfs,
+        git_timeout_seconds=git_timeout_seconds,
+    )
+
+
+def load_target_overrides(path: str, label: str) -> dict[str, TargetOverrideSpec]:
+    payload = _require_dict(load_json_file(path, label), label)
+    version = payload.get("version")
+    if version != 1:
+        raise SystemExit(f"{label} must set version to 1")
+    items = _require_list(payload.get("targets"), f"{label}.targets")
+    overrides: dict[str, TargetOverrideSpec] = {}
+    for index, item in enumerate(items):
+        override = _target_override_from_payload(
+            _require_dict(item, f"{label}.targets[{index}]"),
+            f"{label}.targets[{index}]",
+        )
+        if override.target_project_path in overrides:
+            raise SystemExit(f"Duplicate target override path in {label}: {override.target_project_path}")
+        overrides[override.target_project_path] = override
+    return overrides
+
+
+def _apply_target_override(target: TargetSpec, override: TargetOverrideSpec | None) -> TargetSpec:
+    if override is None:
+        return target
+    return TargetSpec(
+        mode=target.mode,
+        target_project_path=target.target_project_path,
+        target_mirror_path=target.target_mirror_path,
+        source=target.source,
+        repo_name=target.repo_name,
+        git_lfs=override.git_lfs if override.git_lfs is not None else target.git_lfs,
+        git_timeout_seconds=(
+            override.git_timeout_seconds if override.git_timeout_seconds is not None else target.git_timeout_seconds
+        ),
+        branches=target.branches,
+        tags=target.tags,
+        branch_rev=target.branch_rev,
+    )
 
 
 def _append_unique_branch(seen_targets: set[str], branch: ManagedBranch) -> ManagedBranch:
@@ -489,17 +584,29 @@ def load_mirror_target_client(*, path: str | None = None) -> GitLabClient:
     )
 
 
-def load_targets(mode: str, *, client: GitLabClient | None = None, path: str | None = None) -> list[TargetSpec]:
+def load_targets(
+    mode: str,
+    *,
+    client: GitLabClient | None = None,
+    path: str | None = None,
+    project_path: str | None = None,
+) -> list[TargetSpec]:
     if mode != "group":
         raise SystemExit(f"Unsupported sync mode: {mode}")
 
     config_path = path or require_env("TARGETS_CONFIG_PATH")
+    override_path = project_path or os.environ.get("TARGET_PROJECTS_CONFIG_PATH", "").strip()
     discovery_client = client or load_gitlab_client(mode, path=config_path)
     label = "group targets config"
     payload = _require_dict(load_json_file(config_path, label), label)
     version = payload.get("version")
     if version != 1:
         raise SystemExit(f"{label} must set version to 1")
+    overrides = (
+        load_target_overrides(override_path, "project targets config")
+        if override_path
+        else {}
+    )
 
     group_payloads = _require_list(payload.get("targets"), f"{label}.targets")
     if not group_payloads:
@@ -507,6 +614,7 @@ def load_targets(mode: str, *, client: GitLabClient | None = None, path: str | N
 
     targets: list[TargetSpec] = []
     seen_target_paths: set[str] = set()
+    applied_overrides: set[str] = set()
     for index, item in enumerate(group_payloads):
         entry = _require_dict(item, f"{label}.targets[{index}]")
         group = _group_spec_from_payload(entry, f"{label}.targets[{index}]")
@@ -514,7 +622,14 @@ def load_targets(mode: str, *, client: GitLabClient | None = None, path: str | N
             if target.target_project_path in seen_target_paths:
                 raise SystemExit(f"Duplicate target project path in {label}: {target.target_project_path}")
             seen_target_paths.add(target.target_project_path)
-            targets.append(target)
+            override = overrides.get(target.target_project_path)
+            if override is not None:
+                applied_overrides.add(target.target_project_path)
+            targets.append(_apply_target_override(target, override))
+
+    missing_overrides = sorted(set(overrides) - applied_overrides)
+    if missing_overrides:
+        raise SystemExit(f"project targets config contains unknown target projects: {', '.join(missing_overrides)}")
 
     if not targets:
         raise SystemExit(f"{label} resolved no source projects")
