@@ -1,0 +1,22 @@
+{
+  "mirrorPrefix": "gitlab",
+  "prefixEnv": "GIT_BRANCH_PREFIX",
+  "mirrors": [
+    {
+      "nameEnv": "GIT_BRANCH_MAIN",
+      "protected": true
+    },
+    {
+      "nameEnv": "GIT_BRANCH_STAGING",
+      "protected": true
+    },
+    {
+      "nameEnv": "GIT_BRANCH_RELEASE",
+      "protected": true
+    }
+  ],
+  "rev": {
+    "nameEnv": "GIT_BRANCH_REV",
+    "protected": true
+  }
+}

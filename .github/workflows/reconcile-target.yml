@@ -1,0 +1,192 @@
+---
+name: reconcile-target
+
+"on":
+  workflow_call:
+    outputs:
+      has_mirror_targets:
+        description: Whether any configured targets define a target mirror group.
+        value: ${{ jobs.plan.outputs.has_mirror_targets }}
+    secrets:
+      BWS_ACCESS_TOKEN:
+        required: true
+      BWS_PROJECT_ID:
+        required: true
+
+permissions: {}
+
+env:
+  SYNC_MODE: group
+  BATCH_SIZE: "50"
+  TARGETS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_group.json
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      has_mirror_targets: ${{ steps.plan.outputs.has_mirror_targets }}
+      should_run: ${{ steps.plan.outputs.should_run }}
+      batch_matrix: ${{ steps.plan.outputs.batch_matrix }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Checkout shared sync config
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: shared-common/gh-actions-cfg
+          ref: main
+          path: .sync-config
+          persist-credentials: false
+
+      - name: Setup Python
+        # actions/setup-python v6.1.0
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: "3.13"
+
+      - name: Resolve plan secret list
+        id: config_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'secrets=%s\n' \
+            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Fetch plan secrets from BWS
+        uses: >-
+          shared-common/gh-actions-shared/.github/actions/bws-fetch@v0.0.41
+        with:
+          access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          project-id: ${{ secrets.BWS_PROJECT_ID }}
+          bws-version: ${{ vars.BWS_VERSION }}
+          bws-sha256: ${{ vars.BWS_SHA256 }}
+          secrets: ${{ steps.config_meta.outputs.secrets }}
+          output-dir: .secrets
+
+      - name: Mask fetched plan secrets
+        shell: bash
+        env:
+          SECRET_NAMES: ${{ steps.config_meta.outputs.secrets }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/mask_secret_files.py
+
+      - name: Plan sync batches
+        id: plan
+        shell: bash
+        env:
+          OUTPUT_PATH: plan.json
+          SUMMARY_PATH: plan.md
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/plan_sync.py
+
+      - name: Publish plan summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f plan.md ]; then
+            cat plan.md >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Cleanup secrets
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .secrets
+
+  reconcile:
+    if: needs.plan.outputs.should_run == 'true'
+    needs:
+      - plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.batch_matrix) }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Checkout shared sync config
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: shared-common/gh-actions-cfg
+          ref: main
+          path: .sync-config
+          persist-credentials: false
+
+      - name: Setup Python
+        # actions/setup-python v6.1.0
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: "3.13"
+
+      - name: Resolve reconcile secret list
+        id: config_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'secrets=%s\n' \
+            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Fetch reconcile secrets from BWS
+        uses: >-
+          shared-common/gh-actions-shared/.github/actions/bws-fetch@v0.0.41
+        with:
+          access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          project-id: ${{ secrets.BWS_PROJECT_ID }}
+          bws-version: ${{ vars.BWS_VERSION }}
+          bws-sha256: ${{ vars.BWS_SHA256 }}
+          secrets: ${{ steps.config_meta.outputs.secrets }}
+          output-dir: .secrets
+
+      - name: Mask fetched reconcile secrets
+        shell: bash
+        env:
+          SECRET_NAMES: ${{ steps.config_meta.outputs.secrets }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/mask_secret_files.py
+
+      - name: Reconcile target batch
+        shell: bash
+        env:
+          BATCH_INDEX: ${{ matrix.batch_index }}
+          OUTPUT_PATH: reconcile.json
+          SUMMARY_PATH: reconcile.md
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/reconcile_planned_targets.py
+
+      - name: Publish reconcile summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f reconcile.md ]; then
+            cat reconcile.md >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Cleanup secrets
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .secrets

@@ -1,0 +1,98 @@
+---
+name: configure-target-mirrors
+
+"on":
+  workflow_call:
+    secrets:
+      BWS_ACCESS_TOKEN:
+        required: true
+      BWS_PROJECT_ID:
+        required: true
+
+permissions: {}
+
+env:
+  SYNC_MODE: group
+  TARGETS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_group.json
+
+jobs:
+  configure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: configure-target-mirrors-group
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Checkout shared sync config
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: shared-common/gh-actions-cfg
+          ref: main
+          path: .sync-config
+          persist-credentials: false
+
+      - name: Setup Python
+        # actions/setup-python v6.1.0
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: "3.13"
+
+      - name: Resolve mirror secret list
+        id: config_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'secrets=%s\n' \
+            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GL_USER_FORK_MIRROR_SVC,GL_PAT_FORK_MIRROR_SVC" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Fetch mirror secrets from BWS
+        uses: >-
+          shared-common/gh-actions-shared/.github/actions/bws-fetch@v0.0.41
+        with:
+          access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          project-id: ${{ secrets.BWS_PROJECT_ID }}
+          bws-version: ${{ vars.BWS_VERSION }}
+          bws-sha256: ${{ vars.BWS_SHA256 }}
+          secrets: ${{ steps.config_meta.outputs.secrets }}
+          output-dir: .secrets
+
+      - name: Mask fetched mirror secrets
+        shell: bash
+        env:
+          SECRET_NAMES: ${{ steps.config_meta.outputs.secrets }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/mask_secret_files.py
+
+      - name: Configure target mirrors
+        shell: bash
+        env:
+          OUTPUT_PATH: mirrors.json
+          SUMMARY_PATH: mirrors.md
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/configure_target_mirrors.py
+
+      - name: Publish mirror summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f mirrors.md ]; then
+            cat mirrors.md >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Cleanup secrets
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .secrets
