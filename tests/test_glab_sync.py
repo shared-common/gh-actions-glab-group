@@ -144,6 +144,7 @@ class GlabSyncTests(unittest.TestCase):
                 "targets": [
                     {
                         "target_project_path": "glab-forks/kalilinux/packages/bloodhound",
+                        "source_import": True,
                         "git_lfs": True,
                         "git_timeout_seconds": 900,
                     }
@@ -162,6 +163,7 @@ class GlabSyncTests(unittest.TestCase):
             targets = glab_sync.load_targets("group", client=client, path=group_path, project_path=project_path)
 
         self.assertEqual(len(targets), 1)
+        self.assertTrue(targets[0].source_import)
         self.assertTrue(targets[0].git_lfs)
         self.assertEqual(targets[0].git_timeout_seconds, 900)
 
@@ -460,6 +462,45 @@ class GlabSyncTests(unittest.TestCase):
         self.assertIn("unmanaged_branches_present", planned["reasons"])
         self.assertIn("unmanaged_tags_present", planned["reasons"])
 
+    def test_inspect_target_flags_source_import_pending_when_import_not_finished(self):
+        client = GitLabClient(base_url="https://gitlab.com", username="svc", token="token")
+        target = glab_sync.TargetSpec(
+            mode="group",
+            target_project_path="top/sub/demo",
+            source="https://example.com/top/upstream/demo.git",
+            repo_name="demo",
+            source_import=True,
+        )
+        project = {"id": 77, "default_branch": "gitlab/mcr/main", "import_status": "none"}
+
+        def branch_sha_side_effect(_client, _project_id, branch):
+            return {
+                "gitlab/mcr/main": "a" * 40,
+                "gitlab/mcr/staging": "a" * 40,
+                "gitlab/mcr/release": "a" * 40,
+            }[branch]
+
+        with mock.patch.object(glab_sync, "git_source_head", return_value=("main", "a" * 40)):
+            with mock.patch.object(glab_sync, "get_gitlab_project", return_value=project):
+                with mock.patch.object(glab_sync, "get_gitlab_branch_sha", side_effect=branch_sha_side_effect):
+                    with mock.patch.object(glab_sync, "git_remote_ref_sha", return_value=None):
+                        with mock.patch.object(glab_sync, "get_gitlab_protected_branch", return_value={
+                            "push_access_levels": [{"access_level": 40}],
+                            "merge_access_levels": [{"access_level": 40}],
+                            "unprotect_access_levels": [{"access_level": 40}],
+                            "allow_force_push": True,
+                        }):
+                            with mock.patch.object(glab_sync, "list_gitlab_branches", return_value=[
+                                {"name": "main"},
+                                {"name": "gitlab/mcr/main"},
+                                {"name": "gitlab/mcr/staging"},
+                                {"name": "gitlab/mcr/release"},
+                            ]):
+                                with mock.patch.object(glab_sync, "list_gitlab_tags", return_value=[{"name": "v1.0.0"}]):
+                                    planned = glab_sync.inspect_target(target, make_policy(), client)
+
+        self.assertIn("source_import_pending", planned["reasons"])
+
     def test_render_plan_summary_counts_actionable_items(self):
         summary = glab_sync.render_plan_summary(
             "external",
@@ -569,6 +610,90 @@ class GlabSyncTests(unittest.TestCase):
 
         self.assertIn("HTTP 413", str(exc.exception))
 
+    def test_import_target_project_creates_missing_group_target_with_import_url(self):
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        target = glab_sync.TargetSpec(
+            mode="group",
+            target_project_path="glab-forks/team/demo",
+            source="https://gitlab.example/kalilinux/demo.git",
+            repo_name="demo",
+            source_import=True,
+        )
+        project_states = [
+            None,
+            {"id": 29, "import_status": "started"},
+            {"id": 29, "import_status": "finished", "path_with_namespace": "glab-forks/team/demo"},
+        ]
+
+        with mock.patch.object(glab_sync, "get_gitlab_project", side_effect=project_states):
+            with mock.patch.object(glab_sync, "get_gitlab_group_id", return_value=55):
+                with mock.patch.object(
+                    glab_sync,
+                    "gitlab_request",
+                    return_value={"id": 29, "import_status": "scheduled"},
+                ) as request:
+                    with mock.patch("glab_sync.time.sleep") as sleep:
+                        project, created = glab_sync._import_target_project(
+                            client,
+                            target=target,
+                            target_project_path="glab-forks/team/demo",
+                            timeout_seconds=30,
+                        )
+
+        self.assertTrue(created)
+        self.assertEqual(project["id"], 29)
+        self.assertEqual(sleep.call_count, 1)
+        request.assert_called_once_with(
+            client,
+            "POST",
+            "/projects",
+            {
+                "import_url": "https://svc:token@gitlab.example/kalilinux/demo.git",
+                "name": "demo",
+                "namespace_id": 55,
+                "path": "demo",
+                "shared_runners_enabled": False,
+                "visibility": "private",
+            },
+        )
+
+    def test_reconcile_target_uses_source_import_when_requested_for_group_target(self):
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        target = glab_sync.TargetSpec(
+            mode="group",
+            target_project_path="glab-forks/team/demo",
+            source="https://gitlab.example/kalilinux/demo.git",
+            repo_name="demo",
+            source_import=True,
+        )
+
+        with mock.patch.object(glab_sync, "git_source_head", return_value=("main", "a" * 40)):
+            with mock.patch.object(
+                glab_sync,
+                "git_askpass_env",
+                return_value=contextlib.nullcontext({"GIT_ASKPASS": "/tmp/askpass"}),
+            ):
+                with mock.patch.object(
+                    glab_sync,
+                    "_import_target_project",
+                    return_value=({"id": 77, "import_status": "finished", "path_with_namespace": "glab-forks/team/demo"}, True),
+                ) as import_project:
+                    with mock.patch.object(glab_sync, "_sync_target_refs") as sync_refs:
+                        with mock.patch.object(glab_sync, "ensure_gitlab_default_branch", return_value=False):
+                            with mock.patch.object(glab_sync, "_prune_imported_refs") as prune_refs:
+                                with mock.patch.object(glab_sync, "get_gitlab_project", return_value=None):
+                                    payload = glab_sync.reconcile_target(target, make_policy(), client)
+
+        import_project.assert_called_once_with(
+            client,
+            target=target,
+            target_project_path="glab-forks/team/demo",
+            timeout_seconds=300,
+        )
+        sync_refs.assert_called_once()
+        prune_refs.assert_not_called()
+        self.assertIn("seed:source_import", payload["results"]["updated"])
+
     def test_sync_branch_creates_missing_target_branch_with_push(self):
         client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
         branch = glab_sync.ManagedBranch(
@@ -577,6 +702,12 @@ class GlabSyncTests(unittest.TestCase):
             target_name="gitlab/mcr/main",
             protected=True,
             upstream=True,
+        )
+        target = glab_sync.TargetSpec(
+            mode="external",
+            target_project_path="top/sub/demo",
+            source="https://gitlab.example/source/demo.git",
+            repo_name="demo",
         )
         results = {
             "created": [],
@@ -591,6 +722,7 @@ class GlabSyncTests(unittest.TestCase):
             with mock.patch.object(glab_sync, "ensure_gitlab_protected_branch", return_value=True):
                 glab_sync._sync_branch(
                     branch,
+                    target=target,
                     repo_path="/tmp/repo.git",
                     source_url="https://gitlab.example/source/demo.git",
                     target_url="https://gitlab.example/target/demo.git",
