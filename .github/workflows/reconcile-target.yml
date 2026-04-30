@@ -59,14 +59,27 @@ jobs:
             "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
             >> "${GITHUB_OUTPUT}"
 
+      - name: Normalize bws metadata
+        id: bws_meta
+        shell: bash
+        env:
+          RAW_BWS_VERSION: ${{ vars.BWS_VERSION }}
+          RAW_BWS_SHA256: ${{ vars.BWS_SHA256 }}
+        run: |
+          set -euo pipefail
+          version="$(printf '%s' "${RAW_BWS_VERSION}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+          sha256="$(printf '%s' "${RAW_BWS_SHA256}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'sha256=%s\n' "${sha256}" >> "${GITHUB_OUTPUT}"
+
       - name: Fetch plan secrets from BWS
         uses: >-
           shared-common/gh-actions-shared/.github/actions/bws-fetch@v0.0.41
         with:
           access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
           project-id: ${{ secrets.BWS_PROJECT_ID }}
-          bws-version: ${{ vars.BWS_VERSION }}
-          bws-sha256: ${{ vars.BWS_SHA256 }}
+          bws-version: ${{ steps.bws_meta.outputs.version }}
+          bws-sha256: ${{ steps.bws_meta.outputs.sha256 }}
           secrets: ${{ steps.config_meta.outputs.secrets }}
           output-dir: .secrets
 
@@ -146,14 +159,27 @@ jobs:
             "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
             >> "${GITHUB_OUTPUT}"
 
+      - name: Normalize bws metadata
+        id: bws_meta
+        shell: bash
+        env:
+          RAW_BWS_VERSION: ${{ vars.BWS_VERSION }}
+          RAW_BWS_SHA256: ${{ vars.BWS_SHA256 }}
+        run: |
+          set -euo pipefail
+          version="$(printf '%s' "${RAW_BWS_VERSION}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+          sha256="$(printf '%s' "${RAW_BWS_SHA256}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'sha256=%s\n' "${sha256}" >> "${GITHUB_OUTPUT}"
+
       - name: Fetch reconcile secrets from BWS
         uses: >-
           shared-common/gh-actions-shared/.github/actions/bws-fetch@v0.0.41
         with:
           access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
           project-id: ${{ secrets.BWS_PROJECT_ID }}
-          bws-version: ${{ vars.BWS_VERSION }}
-          bws-sha256: ${{ vars.BWS_SHA256 }}
+          bws-version: ${{ steps.bws_meta.outputs.version }}
+          bws-sha256: ${{ steps.bws_meta.outputs.sha256 }}
           secrets: ${{ steps.config_meta.outputs.secrets }}
           output-dir: .secrets
 
