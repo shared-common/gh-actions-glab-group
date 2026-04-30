@@ -45,7 +45,6 @@ class GlabSyncTests(unittest.TestCase):
                         "target_project_group": "ghgl-forks/mainline/packages",
                         "target_mirror_group": "ghgl-mirror/mainline/packages",
                         "source_project_group_url": "https://gitlab.example/upstream/packages",
-                        "git_lfs_project": ["ghgl-forks/mainline/packages/nested/keepsecret"],
                         "git_timeout_seconds": 900,
                         "branch_rev": "feature/login",
                         "branches": [
@@ -88,7 +87,7 @@ class GlabSyncTests(unittest.TestCase):
             ],
         )
         self.assertEqual(targets[0].source, "https://gitlab.example/upstream/packages/nested/keepsecret.git")
-        self.assertTrue(targets[0].git_lfs)
+        self.assertIsNone(targets[0].git_lfs)
         self.assertEqual(targets[0].git_timeout_seconds, 900)
         self.assertEqual(targets[0].branch_rev, "feature/login")
         self.assertEqual(targets[0].branches[0].name, "dev/test")
@@ -124,34 +123,6 @@ class GlabSyncTests(unittest.TestCase):
                 path=path,
             )
 
-    def test_load_targets_rejects_unknown_git_lfs_projects(self):
-        path = write_config(
-            {
-                "version": 1,
-                "targets": [
-                    {
-                        "target_project_group": "glab-forks/system",
-                        "target_mirror_group": "",
-                        "source_project_group_url": "https://gitlab.example/upstream/system",
-                        "git_lfs_project": ["missing/project"],
-                        "branches": [],
-                        "tags": [],
-                    }
-                ],
-            }
-        )
-        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
-        projects = [
-            {
-                "path_with_namespace": "upstream/system/demo",
-                "http_url_to_repo": "https://gitlab.example/upstream/system/demo.git",
-            }
-        ]
-
-        with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
-            with self.assertRaisesRegex(SystemExit, "contains unknown source projects: missing/project"):
-                glab_sync.load_targets("group", client=client, path=path)
-
     def test_load_targets_applies_project_overrides(self):
         group_path = write_config(
             {
@@ -174,7 +145,7 @@ class GlabSyncTests(unittest.TestCase):
                     {
                         "target_project_path": "glab-forks/kalilinux/packages/bloodhound",
                         "git_lfs": True,
-                        "git_timeout_seconds": 1800,
+                        "git_timeout_seconds": 900,
                     }
                 ],
             }
@@ -192,7 +163,7 @@ class GlabSyncTests(unittest.TestCase):
 
         self.assertEqual(len(targets), 1)
         self.assertTrue(targets[0].git_lfs)
-        self.assertEqual(targets[0].git_timeout_seconds, 1800)
+        self.assertEqual(targets[0].git_timeout_seconds, 900)
 
     def test_load_targets_rejects_unknown_project_overrides(self):
         group_path = write_config(

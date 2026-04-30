@@ -81,7 +81,6 @@ class GroupSpec:
     source_project_group_url: str
     source_group_base_url: str
     source_group_path: str
-    git_lfs_projects: tuple[str, ...] = ()
     git_timeout_seconds: int = 300
     branches: tuple[NamedSyncSpec, ...] = ()
     tags: tuple[NamedSyncSpec, ...] = ()
@@ -308,48 +307,6 @@ def _load_named_sync_specs(value: object, label: str) -> list[NamedSyncSpec]:
     return specs
 
 
-def _normalize_group_project_path(
-    value: str,
-    *,
-    target_project_group: str,
-    source_group_path: str,
-    label: str,
-) -> str:
-    if value == target_project_group or value == source_group_path:
-        raise SystemExit(f"{label} must reference a project below the configured group")
-    for prefix in (f"{target_project_group}/", f"{source_group_path}/"):
-        if value.startswith(prefix):
-            value = value[len(prefix) :]
-            break
-    validate_project_path(value, label, min_segments=1)
-    return value
-
-
-def _load_group_project_paths(
-    value: object,
-    label: str,
-    *,
-    target_project_group: str,
-    source_group_path: str,
-) -> list[str]:
-    if value is None:
-        return []
-    paths: list[str] = []
-    seen: set[str] = set()
-    for index, item in enumerate(_require_list(value, label)):
-        path = _normalize_group_project_path(
-            _require_string(item, f"{label}[{index}]"),
-            target_project_group=target_project_group,
-            source_group_path=source_group_path,
-            label=f"{label}[{index}]",
-        )
-        if path in seen:
-            raise SystemExit(f"Duplicate {label} entry: {path}")
-        seen.add(path)
-        paths.append(path)
-    return paths
-
-
 def _group_spec_from_payload(payload: dict[str, Any], label: str) -> GroupSpec:
     target_project_group = _require_string(payload.get("target_project_group"), f"{label}.target_project_group")
     target_mirror_group = str(payload.get("target_mirror_group") or "").strip()
@@ -377,21 +334,12 @@ def _group_spec_from_payload(payload: dict[str, Any], label: str) -> GroupSpec:
     )
     branches = _load_named_sync_specs(payload.get("branches"), f"{label}.branches")
     tags = _load_named_sync_specs(payload.get("tags"), f"{label}.tags")
-    if payload.get("git_lfs_project") is not None and payload.get("git_lfs_projects") is not None:
-        raise SystemExit(f"{label} must set only one of git_lfs_project or git_lfs_projects")
-    git_lfs_projects = _load_group_project_paths(
-        payload.get("git_lfs_project") if payload.get("git_lfs_project") is not None else payload.get("git_lfs_projects"),
-        f"{label}.git_lfs_project",
-        target_project_group=target_project_group,
-        source_group_path=source_group_path,
-    )
     return GroupSpec(
         target_project_group=target_project_group,
         target_mirror_group=target_mirror_group,
         source_project_group_url=source_project_group_url,
         source_group_base_url=source_group_base_url,
         source_group_path=source_group_path,
-        git_lfs_projects=tuple(git_lfs_projects),
         git_timeout_seconds=git_timeout_seconds,
         branches=tuple(branches),
         tags=tuple(tags),
@@ -430,7 +378,6 @@ def _expand_group_targets(group: GroupSpec, client: GitLabClient, label: str) ->
     expanded: list[TargetSpec] = []
     seen_relative_paths: set[str] = set()
     seen_target_paths: set[str] = set()
-    discovered_lfs: set[str] = set()
     projects = sorted(
         list_gitlab_group_projects(client, group.source_group_path, include_subgroups=True),
         key=lambda item: str(item.get("path_with_namespace") or ""),
@@ -442,8 +389,6 @@ def _expand_group_targets(group: GroupSpec, client: GitLabClient, label: str) ->
         if relative_path in seen_relative_paths:
             raise SystemExit(f"Duplicate discovered project path in {label}: {relative_path}")
         seen_relative_paths.add(relative_path)
-        if relative_path in group.git_lfs_projects:
-            discovered_lfs.add(relative_path)
 
         target_project_path = f"{group.target_project_group}/{relative_path}"
         if target_project_path in seen_target_paths:
@@ -461,17 +406,13 @@ def _expand_group_targets(group: GroupSpec, client: GitLabClient, label: str) ->
                 target_mirror_path=target_mirror_path,
                 source=source_url,
                 repo_name=target_project_path.rsplit("/", 1)[-1],
-                git_lfs=True if relative_path in group.git_lfs_projects else None,
+                git_lfs=None,
                 git_timeout_seconds=group.git_timeout_seconds,
                 branches=group.branches,
                 tags=group.tags,
                 branch_rev=group.branch_rev,
             )
         )
-
-    missing_lfs = sorted(set(group.git_lfs_projects) - discovered_lfs)
-    if missing_lfs:
-        raise SystemExit(f"{label}.git_lfs_project contains unknown source projects: {', '.join(missing_lfs)}")
     return expanded
 
 
