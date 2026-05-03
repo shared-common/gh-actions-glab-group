@@ -50,10 +50,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'secrets=%s\n' \
-            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,"\
-            "GL_USER_FORK_MIRROR_SVC,GL_PAT_FORK_MIRROR_SVC" \
-            >> "${GITHUB_OUTPUT}"
+          secrets="$(
+            printf '%s%s' \
+              'GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,' \
+              'GL_USER_FORK_MIRROR_SVC,GL_PAT_FORK_MIRROR_SVC'
+          )"
+          printf 'secrets=%s\n' "${secrets}" >> "${GITHUB_OUTPUT}"
 
       - name: Fetch mirror secrets from BWS
         uses: >-

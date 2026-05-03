@@ -56,11 +56,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'secrets=%s\n' \
-            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,"\
-            "GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,"\
-            "GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
-            >> "${GITHUB_OUTPUT}"
+          secrets="$(
+            printf '%s%s%s' \
+              'GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,' \
+              'GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,' \
+              'GIT_BRANCH_RELEASE,GIT_BRANCH_REV'
+          )"
+          printf 'secrets=%s\n' "${secrets}" >> "${GITHUB_OUTPUT}"
 
       - name: Fetch plan secrets from BWS
         uses: >-
@@ -145,11 +147,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'secrets=%s\n' \
-            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,"\
-            "GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,"\
-            "GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
-            >> "${GITHUB_OUTPUT}"
+          secrets="$(
+            printf '%s%s%s' \
+              'GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,' \
+              'GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,' \
+              'GIT_BRANCH_RELEASE,GIT_BRANCH_REV'
+          )"
+          printf 'secrets=%s\n' "${secrets}" >> "${GITHUB_OUTPUT}"
 
       - name: Fetch reconcile secrets from BWS
         uses: >-
