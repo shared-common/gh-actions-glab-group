@@ -60,7 +60,7 @@ def main() -> int:
     output_path = os.environ.get("OUTPUT_PATH", "mirror.json")
     summary_path = os.environ.get("SUMMARY_PATH", "mirror.md")
 
-    config_path = os.environ.get("TARGETS_CONFIG_PATH")
+    config_path = require_env("TARGETS_CONFIG_PATH")
     source_client = load_gitlab_client(mode, path=config_path)
     mirror_client = load_mirror_target_client(path=config_path)
     targets = [target for target in load_targets(mode, client=source_client, path=config_path) if target.target_mirror_path]

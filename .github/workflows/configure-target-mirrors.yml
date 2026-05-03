@@ -13,8 +13,8 @@ permissions: {}
 
 env:
   SYNC_MODE: group
-  TARGETS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_group.json
-  TARGET_PROJECTS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_project.json
+  TARGETS_CONFIG_PATH: gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json
+  TARGET_PROJECTS_CONFIG_PATH: gh-actions-cfg/gh-actions-glab-group/gl_forks_project.json
 
 jobs:
   configure:
@@ -36,7 +36,7 @@ jobs:
         with:
           repository: shared-common/gh-actions-cfg
           ref: main
-          path: .sync-config
+          path: gh-actions-cfg
           persist-credentials: false
 
       - name: Setup Python
@@ -51,7 +51,8 @@ jobs:
         run: |
           set -euo pipefail
           printf 'secrets=%s\n' \
-            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GL_USER_FORK_MIRROR_SVC,GL_PAT_FORK_MIRROR_SVC" \
+            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,"\
+            "GL_USER_FORK_MIRROR_SVC,GL_PAT_FORK_MIRROR_SVC" \
             >> "${GITHUB_OUTPUT}"
 
       - name: Fetch mirror secrets from BWS

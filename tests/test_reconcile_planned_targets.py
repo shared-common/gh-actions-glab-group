@@ -71,6 +71,7 @@ class ReconcilePlannedTargetsTests(unittest.TestCase):
                 "BATCH_SIZE": "2",
                 "OUTPUT_PATH": str(output_path),
                 "SUMMARY_PATH": str(summary_path),
+                "TARGETS_CONFIG_PATH": "gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json",
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 with mock.patch.object(reconcile_planned_targets, "load_branch_policy", return_value=policy):

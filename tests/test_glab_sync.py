@@ -167,6 +167,77 @@ class GlabSyncTests(unittest.TestCase):
         self.assertTrue(targets[0].git_lfs)
         self.assertEqual(targets[0].git_timeout_seconds, 900)
 
+    def test_load_targets_excludes_group_branches_for_selected_projects(self):
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        projects = [
+            {
+                "path_with_namespace": "kalilinux/packages/plain/demo",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/plain/demo.git",
+            },
+            {
+                "path_with_namespace": "kalilinux/packages/plain/keepsecret",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/plain/keepsecret.git",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            group_path = base / "gl_forks_group.json"
+            group_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "targets": [
+                            {
+                                "target_project_group": "glab-forks/kalilinux/packages",
+                                "target_mirror_group": "",
+                                "source_project_group_url": "https://gitlab.example/kalilinux/packages",
+                                "branches": [
+                                    {"name": "upstream", "protected": True, "upstream": True},
+                                ],
+                                "tags": [],
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (base / "gl_forks_branch_exclusion.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "targets": [
+                            {
+                                "target_project_path": "glab-forks/kalilinux/packages/plain/demo",
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
+                targets = glab_sync.load_targets(
+                    "group",
+                    client=client,
+                    path=str(group_path),
+                )
+
+        targets_by_path = {target.target_project_path: target for target in targets}
+        excluded = targets_by_path["glab-forks/kalilinux/packages/plain/demo"]
+        included = targets_by_path["glab-forks/kalilinux/packages/plain/keepsecret"]
+
+        self.assertEqual(
+            [branch.target_name for branch in excluded.managed_branches(make_policy(), "main")],
+            ["gitlab/mcr/main", "gitlab/mcr/staging", "gitlab/mcr/release"],
+        )
+        self.assertEqual(
+            [branch.target_name for branch in included.managed_branches(make_policy(), "main")],
+            ["gitlab/mcr/main", "gitlab/mcr/staging", "gitlab/mcr/release", "gitlab/mcr/upstream"],
+        )
+
     def test_load_targets_rejects_unknown_project_overrides(self):
         group_path = write_config(
             {
@@ -204,6 +275,51 @@ class GlabSyncTests(unittest.TestCase):
         with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
             with self.assertRaisesRegex(SystemExit, "unknown target projects: glab-forks/kalilinux/packages/missing"):
                 glab_sync.load_targets("group", client=client, path=group_path, project_path=project_path)
+
+    def test_load_targets_rejects_unknown_branch_exclusions(self):
+        group_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_group": "glab-forks/kalilinux/packages",
+                        "target_mirror_group": "",
+                        "source_project_group_url": "https://gitlab.example/kalilinux/packages",
+                        "branches": [],
+                        "tags": [],
+                    }
+                ],
+            }
+        )
+        exclusion_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_path": "glab-forks/kalilinux/packages/missing",
+                    }
+                ],
+            }
+        )
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        projects = [
+            {
+                "path_with_namespace": "kalilinux/packages/bloodhound",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/bloodhound.git",
+            }
+        ]
+
+        with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
+            with self.assertRaisesRegex(
+                SystemExit,
+                "unknown target projects: glab-forks/kalilinux/packages/missing",
+            ):
+                glab_sync.load_targets(
+                    "group",
+                    client=client,
+                    path=group_path,
+                    branch_exclusion_path=exclusion_path,
+                )
 
     def test_target_spec_requires_repo_name_to_match_target_path(self):
         with self.assertRaises(SystemExit):

@@ -74,6 +74,7 @@ class ConfigureTargetMirrorsTests(unittest.TestCase):
                 "SYNC_MODE": "group",
                 "OUTPUT_PATH": str(output_path),
                 "SUMMARY_PATH": str(summary_path),
+                "TARGETS_CONFIG_PATH": "gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json",
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 with mock.patch.object(
@@ -137,6 +138,7 @@ class ConfigureTargetMirrorsTests(unittest.TestCase):
                 "SYNC_MODE": "group",
                 "OUTPUT_PATH": str(output_path),
                 "SUMMARY_PATH": str(summary_path),
+                "TARGETS_CONFIG_PATH": "gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json",
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 with mock.patch.object(configure_target_mirrors, "load_targets", return_value=[target]):
@@ -190,6 +192,7 @@ class ConfigureTargetMirrorsTests(unittest.TestCase):
                 "SYNC_MODE": "group",
                 "OUTPUT_PATH": str(output_path),
                 "SUMMARY_PATH": str(summary_path),
+                "TARGETS_CONFIG_PATH": "gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json",
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 with mock.patch.object(configure_target_mirrors, "load_targets", return_value=[target]):
@@ -243,6 +246,7 @@ class ConfigureTargetMirrorsTests(unittest.TestCase):
                 "SYNC_MODE": "group",
                 "OUTPUT_PATH": str(output_path),
                 "SUMMARY_PATH": str(summary_path),
+                "TARGETS_CONFIG_PATH": "gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json",
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 with mock.patch.object(configure_target_mirrors, "load_targets", return_value=[target]):

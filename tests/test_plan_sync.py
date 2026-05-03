@@ -52,6 +52,7 @@ class PlanSyncTests(unittest.TestCase):
                 "OUTPUT_PATH": str(output_path),
                 "SUMMARY_PATH": str(summary_path),
                 "GITHUB_OUTPUT": str(github_output),
+                "TARGETS_CONFIG_PATH": "gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json",
             }
             with mock.patch.dict(os.environ, env, clear=False):
                 with mock.patch.object(plan_sync, "load_gitlab_client", return_value=client):

@@ -5,7 +5,7 @@ import json
 import os
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -459,6 +459,26 @@ def load_target_overrides(path: str, label: str) -> dict[str, TargetOverrideSpec
     return overrides
 
 
+def load_target_branch_exclusions(path: str, label: str) -> set[str]:
+    payload = _require_dict(load_json_file(path, label), label)
+    version = payload.get("version")
+    if version != 1:
+        raise SystemExit(f"{label} must set version to 1")
+    items = _require_list(payload.get("targets"), f"{label}.targets")
+    exclusions: set[str] = set()
+    for index, item in enumerate(items):
+        entry = _require_dict(item, f"{label}.targets[{index}]")
+        target_project_path = _require_string(
+            entry.get("target_project_path"),
+            f"{label}.targets[{index}].target_project_path",
+        )
+        validate_project_path(target_project_path, f"{label}.targets[{index}].target_project_path")
+        if target_project_path in exclusions:
+            raise SystemExit(f"Duplicate target exclusion path in {label}: {target_project_path}")
+        exclusions.add(target_project_path)
+    return exclusions
+
+
 def _apply_target_override(target: TargetSpec, override: TargetOverrideSpec | None) -> TargetSpec:
     if override is None:
         return target
@@ -477,6 +497,17 @@ def _apply_target_override(target: TargetSpec, override: TargetOverrideSpec | No
         tags=target.tags,
         branch_rev=target.branch_rev,
     )
+
+
+def _exclude_target_group_branches(target: TargetSpec, excluded: bool) -> TargetSpec:
+    if not excluded or not target.branches:
+        return target
+    return replace(target, branches=())
+
+
+def _default_branch_exclusion_path(config_path: str) -> str:
+    candidate = Path(config_path).parent / "gl_forks_branch_exclusion.json"
+    return str(candidate) if candidate.is_file() else ""
 
 
 def _append_unique_branch(seen_targets: set[str], branch: ManagedBranch) -> ManagedBranch:
@@ -540,12 +571,18 @@ def load_targets(
     client: GitLabClient | None = None,
     path: str | None = None,
     project_path: str | None = None,
+    branch_exclusion_path: str | None = None,
 ) -> list[TargetSpec]:
     if mode != "group":
         raise SystemExit(f"Unsupported sync mode: {mode}")
 
     config_path = path or require_env("TARGETS_CONFIG_PATH")
     override_path = project_path or os.environ.get("TARGET_PROJECTS_CONFIG_PATH", "").strip()
+    exclusion_path = (
+        branch_exclusion_path
+        or os.environ.get("TARGET_BRANCH_EXCLUSIONS_CONFIG_PATH", "").strip()
+        or _default_branch_exclusion_path(config_path)
+    )
     discovery_client = client or load_gitlab_client(mode, path=config_path)
     label = "group targets config"
     payload = _require_dict(load_json_file(config_path, label), label)
@@ -557,6 +594,11 @@ def load_targets(
         if override_path
         else {}
     )
+    branch_exclusions = (
+        load_target_branch_exclusions(exclusion_path, "branch exclusion config")
+        if exclusion_path
+        else set()
+    )
 
     group_payloads = _require_list(payload.get("targets"), f"{label}.targets")
     if not group_payloads:
@@ -565,6 +607,7 @@ def load_targets(
     targets: list[TargetSpec] = []
     seen_target_paths: set[str] = set()
     applied_overrides: set[str] = set()
+    applied_branch_exclusions: set[str] = set()
     for index, item in enumerate(group_payloads):
         entry = _require_dict(item, f"{label}.targets[{index}]")
         group = _group_spec_from_payload(entry, f"{label}.targets[{index}]")
@@ -575,11 +618,21 @@ def load_targets(
             override = overrides.get(target.target_project_path)
             if override is not None:
                 applied_overrides.add(target.target_project_path)
+            is_branch_excluded = target.target_project_path in branch_exclusions
+            if is_branch_excluded:
+                applied_branch_exclusions.add(target.target_project_path)
+            target = _exclude_target_group_branches(target, is_branch_excluded)
             targets.append(_apply_target_override(target, override))
 
     missing_overrides = sorted(set(overrides) - applied_overrides)
     if missing_overrides:
         raise SystemExit(f"project targets config contains unknown target projects: {', '.join(missing_overrides)}")
+    missing_branch_exclusions = sorted(branch_exclusions - applied_branch_exclusions)
+    if missing_branch_exclusions:
+        raise SystemExit(
+            "branch exclusion config contains unknown target projects: "
+            + ", ".join(missing_branch_exclusions)
+        )
 
     if not targets:
         raise SystemExit(f"{label} resolved no source projects")

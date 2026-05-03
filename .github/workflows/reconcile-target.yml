@@ -18,8 +18,8 @@ permissions: {}
 env:
   SYNC_MODE: group
   BATCH_SIZE: "50"
-  TARGETS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_group.json
-  TARGET_PROJECTS_CONFIG_PATH: .sync-config/gh-actions-glab-group/gl_forks_project.json
+  TARGETS_CONFIG_PATH: gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json
+  TARGET_PROJECTS_CONFIG_PATH: gh-actions-cfg/gh-actions-glab-group/gl_forks_project.json
 
 jobs:
   plan:
@@ -42,7 +42,7 @@ jobs:
         with:
           repository: shared-common/gh-actions-cfg
           ref: main
-          path: .sync-config
+          path: gh-actions-cfg
           persist-credentials: false
 
       - name: Setup Python
@@ -57,7 +57,9 @@ jobs:
         run: |
           set -euo pipefail
           printf 'secrets=%s\n' \
-            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
+            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,"\
+            "GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,"\
+            "GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
             >> "${GITHUB_OUTPUT}"
 
       - name: Fetch plan secrets from BWS
@@ -129,7 +131,7 @@ jobs:
         with:
           repository: shared-common/gh-actions-cfg
           ref: main
-          path: .sync-config
+          path: gh-actions-cfg
           persist-credentials: false
 
       - name: Setup Python
@@ -144,7 +146,9 @@ jobs:
         run: |
           set -euo pipefail
           printf 'secrets=%s\n' \
-            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
+            "GL_BASE_URL,GL_PAT_FORK_GLAB_SVC,GL_BRIDGE_FORK_USER_GLAB,"\
+            "GIT_BRANCH_PREFIX,GIT_BRANCH_MAIN,GIT_BRANCH_STAGING,"\
+            "GIT_BRANCH_RELEASE,GIT_BRANCH_REV" \
             >> "${GITHUB_OUTPUT}"
 
       - name: Fetch reconcile secrets from BWS
