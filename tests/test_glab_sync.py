@@ -238,6 +238,104 @@ class GlabSyncTests(unittest.TestCase):
             ["gitlab/mcr/main", "gitlab/mcr/staging", "gitlab/mcr/release", "gitlab/mcr/upstream"],
         )
 
+    def test_load_targets_excludes_projects_entirely(self):
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        projects = [
+            {
+                "path_with_namespace": "kalilinux/packages/plain/demo",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/plain/demo.git",
+            },
+            {
+                "path_with_namespace": "kalilinux/packages/plain/keepsecret",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/plain/keepsecret.git",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            group_path = base / "gl_forks_group.json"
+            group_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "targets": [
+                            {
+                                "target_project_group": "glab-forks/kalilinux/packages",
+                                "target_mirror_group": "workyard/glab-forks/kalilinux/packages",
+                                "source_project_group_url": "https://gitlab.example/kalilinux/packages",
+                                "branches": [
+                                    {"name": "upstream", "protected": True, "upstream": True},
+                                ],
+                                "tags": [],
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            project_path = base / "gl_forks_project.json"
+            project_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "targets": [
+                            {
+                                "target_project_path": "glab-forks/kalilinux/packages/plain/demo",
+                                "source_import": True,
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (base / "gl_forks_branch_exclusion.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "targets": [
+                            {
+                                "target_project_path": "glab-forks/kalilinux/packages/plain/demo",
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (base / "gl_forks_projects_exclusion.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "targets": [
+                            {
+                                "target_project_path": "glab-forks/kalilinux/packages/plain/demo",
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
+                targets = glab_sync.load_targets(
+                    "group",
+                    client=client,
+                    path=str(group_path),
+                    project_path=str(project_path),
+                )
+
+        self.assertEqual(
+            [target.target_project_path for target in targets],
+            ["glab-forks/kalilinux/packages/plain/keepsecret"],
+        )
+        self.assertEqual(
+            [target.target_mirror_path for target in targets],
+            ["workyard/glab-forks/kalilinux/packages/plain/keepsecret"],
+        )
+
     def test_load_targets_rejects_unknown_project_overrides(self):
         group_path = write_config(
             {
@@ -319,6 +417,51 @@ class GlabSyncTests(unittest.TestCase):
                     client=client,
                     path=group_path,
                     branch_exclusion_path=exclusion_path,
+                )
+
+    def test_load_targets_rejects_unknown_project_exclusions(self):
+        group_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_group": "glab-forks/kalilinux/packages",
+                        "target_mirror_group": "",
+                        "source_project_group_url": "https://gitlab.example/kalilinux/packages",
+                        "branches": [],
+                        "tags": [],
+                    }
+                ],
+            }
+        )
+        exclusion_path = write_config(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "target_project_path": "glab-forks/kalilinux/packages/missing",
+                    }
+                ],
+            }
+        )
+        client = GitLabClient(base_url="https://gitlab.example", username="svc", token="token")
+        projects = [
+            {
+                "path_with_namespace": "kalilinux/packages/bloodhound",
+                "http_url_to_repo": "https://gitlab.example/kalilinux/packages/bloodhound.git",
+            }
+        ]
+
+        with mock.patch.object(glab_sync, "list_gitlab_group_projects", return_value=projects):
+            with self.assertRaisesRegex(
+                SystemExit,
+                "project exclusion config contains unknown target projects: glab-forks/kalilinux/packages/missing",
+            ):
+                glab_sync.load_targets(
+                    "group",
+                    client=client,
+                    path=group_path,
+                    project_exclusion_path=exclusion_path,
                 )
 
     def test_target_spec_requires_repo_name_to_match_target_path(self):

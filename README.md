@@ -19,12 +19,17 @@ into the local runner path `gh-actions-cfg/`. The active group sync consumes:
 - `gh-actions-cfg/gh-actions-glab-group/gl_forks_group.json`
 - `gh-actions-cfg/gh-actions-glab-group/gl_forks_project.json`
 - `gh-actions-cfg/gh-actions-glab-group/gl_forks_branch_exclusion.json`
+- `gh-actions-cfg/gh-actions-glab-group/gl_forks_projects_exclusion.json`
 
 `gl_forks_branch_exclusion.json` is optional. When present next to
 `gl_forks_group.json`, the loader automatically excludes the listed target
 projects from syncing the extra `gl_forks_group.json` branch set while still
 applying `configs/branch-policy.json`, default-branch handling, and the rest of
 the normal target reconciliation flow.
+
+`gl_forks_projects_exclusion.json` is also optional. When present next to
+`gl_forks_group.json`, the loader omits the listed target projects entirely so
+they are not planned, forked, reconciled, or mirrored.
 
 ## Validation
 

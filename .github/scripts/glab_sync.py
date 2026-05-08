@@ -459,7 +459,7 @@ def load_target_overrides(path: str, label: str) -> dict[str, TargetOverrideSpec
     return overrides
 
 
-def load_target_branch_exclusions(path: str, label: str) -> set[str]:
+def _load_target_path_set(path: str, label: str) -> set[str]:
     payload = _require_dict(load_json_file(path, label), label)
     version = payload.get("version")
     if version != 1:
@@ -477,6 +477,14 @@ def load_target_branch_exclusions(path: str, label: str) -> set[str]:
             raise SystemExit(f"Duplicate target exclusion path in {label}: {target_project_path}")
         exclusions.add(target_project_path)
     return exclusions
+
+
+def load_target_branch_exclusions(path: str, label: str) -> set[str]:
+    return _load_target_path_set(path, label)
+
+
+def load_target_project_exclusions(path: str, label: str) -> set[str]:
+    return _load_target_path_set(path, label)
 
 
 def _apply_target_override(target: TargetSpec, override: TargetOverrideSpec | None) -> TargetSpec:
@@ -505,9 +513,17 @@ def _exclude_target_group_branches(target: TargetSpec, excluded: bool) -> Target
     return replace(target, branches=())
 
 
-def _default_branch_exclusion_path(config_path: str) -> str:
-    candidate = Path(config_path).parent / "gl_forks_branch_exclusion.json"
+def _default_optional_config_path(config_path: str, filename: str) -> str:
+    candidate = Path(config_path).parent / filename
     return str(candidate) if candidate.is_file() else ""
+
+
+def _default_branch_exclusion_path(config_path: str) -> str:
+    return _default_optional_config_path(config_path, "gl_forks_branch_exclusion.json")
+
+
+def _default_project_exclusion_path(config_path: str) -> str:
+    return _default_optional_config_path(config_path, "gl_forks_projects_exclusion.json")
 
 
 def _append_unique_branch(seen_targets: set[str], branch: ManagedBranch) -> ManagedBranch:
@@ -572,6 +588,7 @@ def load_targets(
     path: str | None = None,
     project_path: str | None = None,
     branch_exclusion_path: str | None = None,
+    project_exclusion_path: str | None = None,
 ) -> list[TargetSpec]:
     if mode != "group":
         raise SystemExit(f"Unsupported sync mode: {mode}")
@@ -582,6 +599,11 @@ def load_targets(
         branch_exclusion_path
         or os.environ.get("TARGET_BRANCH_EXCLUSIONS_CONFIG_PATH", "").strip()
         or _default_branch_exclusion_path(config_path)
+    )
+    project_exclusion_path = (
+        project_exclusion_path
+        or os.environ.get("TARGET_PROJECT_EXCLUSIONS_CONFIG_PATH", "").strip()
+        or _default_project_exclusion_path(config_path)
     )
     discovery_client = client or load_gitlab_client(mode, path=config_path)
     label = "group targets config"
@@ -599,6 +621,11 @@ def load_targets(
         if exclusion_path
         else set()
     )
+    project_exclusions = (
+        load_target_project_exclusions(project_exclusion_path, "project exclusion config")
+        if project_exclusion_path
+        else set()
+    )
 
     group_payloads = _require_list(payload.get("targets"), f"{label}.targets")
     if not group_payloads:
@@ -608,6 +635,7 @@ def load_targets(
     seen_target_paths: set[str] = set()
     applied_overrides: set[str] = set()
     applied_branch_exclusions: set[str] = set()
+    applied_project_exclusions: set[str] = set()
     for index, item in enumerate(group_payloads):
         entry = _require_dict(item, f"{label}.targets[{index}]")
         group = _group_spec_from_payload(entry, f"{label}.targets[{index}]")
@@ -621,6 +649,10 @@ def load_targets(
             is_branch_excluded = target.target_project_path in branch_exclusions
             if is_branch_excluded:
                 applied_branch_exclusions.add(target.target_project_path)
+            is_project_excluded = target.target_project_path in project_exclusions
+            if is_project_excluded:
+                applied_project_exclusions.add(target.target_project_path)
+                continue
             target = _exclude_target_group_branches(target, is_branch_excluded)
             targets.append(_apply_target_override(target, override))
 
@@ -632,6 +664,12 @@ def load_targets(
         raise SystemExit(
             "branch exclusion config contains unknown target projects: "
             + ", ".join(missing_branch_exclusions)
+        )
+    missing_project_exclusions = sorted(project_exclusions - applied_project_exclusions)
+    if missing_project_exclusions:
+        raise SystemExit(
+            "project exclusion config contains unknown target projects: "
+            + ", ".join(missing_project_exclusions)
         )
 
     if not targets:
