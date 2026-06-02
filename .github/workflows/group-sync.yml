@@ -1,5 +1,5 @@
 ---
-name: group-sync
+name: kali-group-sync
 
 "on":
   schedule:
@@ -9,25 +9,24 @@ name: group-sync
 permissions: {}
 
 concurrency:
-  group: gh-actions-glab-group-sync
+  group: glab-groups-kali-sync
   cancel-in-progress: false
 
 jobs:
   sync:
     permissions:
       contents: read
-    uses: ./.github/workflows/reconcile-target.yml
-    secrets:
-      BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
-      BWS_PROJECT_ID: ${{ secrets.BWS_PROJECT_ID }}
-
-  configure-mirrors:
-    if: needs.sync.result == 'success' && needs.sync.outputs.has_mirror_targets == 'true'
-    needs:
-      - sync
-    permissions:
-      contents: read
-    uses: ./.github/workflows/configure-target-mirrors.yml
+    uses: shared-common/glab-groups-shared/.github/workflows/group-sync-core.yml@main
+    with:
+      shared-repo: shared-common/glab-groups-shared
+      shared-ref: main
+      config-repo: shared-common/gh-actions-cfg
+      config-ref: main
+      config-path: glab-groups-kali
+      batch-size: 25
+      emit-parquet: true
+      bws-version: ${{ vars.BWS_VERSION }}
+      bws-sha256: ${{ vars.BWS_SHA256 }}
     secrets:
       BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
       BWS_PROJECT_ID: ${{ secrets.BWS_PROJECT_ID }}
