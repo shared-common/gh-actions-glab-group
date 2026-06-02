@@ -13,7 +13,9 @@ class WorkflowContractTests(unittest.TestCase):
             "uses: shared-common/glab-groups-shared/.github/workflows/group-sync-core.yml@main",
             text,
         )
+        self.assertIn("shared-ref: main", text)
         self.assertIn("config-path: glab-groups-kali", text)
+        self.assertIn("batch-size: 25", text)
         self.assertIn("emit-parquet: true", text)
 
 
