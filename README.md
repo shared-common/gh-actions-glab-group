@@ -5,7 +5,7 @@ Thin GitHub Actions wrapper for the Kali namespace mirror.
 ## Scope
 
 - Loads `gh-actions-cfg/glab-groups-kali`
-- Calls the reusable workflow in `glab-groups-shared@main`
+- Calls the reusable workflow in `glab-groups-shared@mcr/main`
 - Uses the BWS target PAT secret `GL_PAT_GROUP_KALI_SVC`
 - Runs one 25-repository batch per mirror job with five jobs max in parallel
 - Schedules at minute 5 of hours 0, 6, 12, and 18 UTC

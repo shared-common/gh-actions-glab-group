@@ -20,9 +20,9 @@ jobs:
       shared-common/glab-groups-shared/.github/workflows/group-sync-core.yml@mcr/main
     with:
       shared-repo: shared-common/glab-groups-shared
-      shared-ref: main
+      shared-ref: mcr/main
       config-repo: shared-common/gh-actions-cfg
-      config-ref: main
+      config-ref: mcr/main
       config-path: glab-groups-kali
       target-token-secret: GL_PAT_GROUP_KALI_SVC
       batch-size: 25
