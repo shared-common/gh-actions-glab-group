@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: read
     uses: >-
-      shared-common/glab-groups-shared/.github/workflows/group-sync-core.yml@main
+      shared-common/glab-groups-shared/.github/workflows/group-sync-core.yml@mcr/main
     with:
       shared-repo: shared-common/glab-groups-shared
       shared-ref: main
