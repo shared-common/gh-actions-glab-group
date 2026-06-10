@@ -5,12 +5,6 @@ name: kali-group-sync
   schedule:
     - cron: "5 0,12 * * *"
   workflow_dispatch:
-    inputs:
-      force-refresh-discovery:
-        description: Force live source discovery and ignore restored inventory cache
-        required: false
-        type: boolean
-        default: false
 
 permissions: {}
 
@@ -32,7 +26,6 @@ jobs:
       config-path: glab-groups-kali
       target-token-secret: GL_PAT_GROUP_KALI_SVC
       batch-size: 25
-      force-refresh-discovery: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force-refresh-discovery == 'true' }}
       emit-parquet: true
       bws-version: ${{ vars.BWS_VERSION }}
       bws-sha256: ${{ vars.BWS_SHA256 }}

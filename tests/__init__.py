@@ -1,0 +1,1 @@
+"""Wrapper workflow contract tests."""
