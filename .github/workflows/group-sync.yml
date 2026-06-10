@@ -25,7 +25,6 @@ jobs:
       config-ref: mcr/main
       config-path: glab-groups-kali
       target-token-secret: GL_PAT_GROUP_KALI_SVC
-      batch-size: 25
       emit-parquet: true
       bws-version: ${{ vars.BWS_VERSION }}
       bws-sha256: ${{ vars.BWS_SHA256 }}

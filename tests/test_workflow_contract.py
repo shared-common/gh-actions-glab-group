@@ -18,7 +18,6 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("config-path: glab-groups-kali", text)
         self.assertIn("target-token-secret: GL_PAT_GROUP_KALI_SVC", text)
         self.assertIn('cron: "5 8 2-30/2 * *"', text)
-        self.assertIn("batch-size: 25", text)
         self.assertIn("emit-parquet: true", text)
 
 
