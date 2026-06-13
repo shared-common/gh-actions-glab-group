@@ -1,0 +1,32 @@
+---
+name: kali-projects-only-sync
+
+"on":
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: glab-groups-kali-projects-only-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    permissions:
+      contents: read
+    uses: >-
+      shared-common/glab-groups-shared/.github/workflows/group-sync-core.yml@mcr/main
+    with:
+      shared-repo: shared-common/glab-groups-shared
+      shared-ref: mcr/main
+      config-repo: shared-common/gh-actions-cfg
+      config-ref: mcr/main
+      config-path: glab-groups-kali
+      target-token-secret: GL_PAT_GROUP_KALI_SVC
+      projects-only: true
+      emit-parquet: true
+      bws-version: ${{ vars.BWS_VERSION }}
+      bws-sha256: ${{ vars.BWS_SHA256 }}
+    secrets:
+      BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
+      BWS_PROJECT_ID: ${{ secrets.BWS_PROJECT_ID }}
